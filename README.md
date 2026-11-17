@@ -129,7 +129,7 @@ The Streamlit app (`streamlit run app.py`) is one page with three numbered secti
 3. Add a task for Rex: "Morning walk", walk, 30 min, High, repeats Daily, fixed time 8:00 AM.
 4. Add a task for Mia: "Breakfast", feeding, 5 min, High, repeats Daily, fixed time 8:00 AM.
 5. Add a task for Rex: "Brush coat", grooming, 15 min, Low, Once, no fixed time.
-6. Look at **3. Schedule** for today: the yellow banner warns that *Morning walk (Rex) and Breakfast (Mia) are both at the same time, 08:00 AM*, and the metrics show 3 tasks, 0 / 3 done, 60 min.
+6. Look at **3. Schedule** for today: the yellow banner warns that *Morning walk (Rex) and Breakfast (Mia) are both at the same time, 08:00 AM*, and the metrics show 3 tasks, 0 / 3 done, 50 min.
 7. Set the Pet filter to **Mia** to see only her breakfast, then switch back to All pets and sort by **Time of day**.
 8. Mark **Morning walk** done. The app confirms *"Marked 'Morning walk' for Rex done. Next daily occurrence added for [tomorrow's date]."*, and the Done metric changes to 1 / 3.
 9. Open the **📅 7-day overview** to see the walk and breakfast on every day of the week.
