@@ -1,8 +1,8 @@
 # PawPal+ AI Evaluation Results
 
-**18/18 cases passed** - mode: mock (scripted replies) - 2026-11-17
+**19/19 cases passed** - mode: mock (scripted replies) - 2026-11-17
 
-- command: 6/6
+- command: 7/7
 - question: 5/5
 - refusal: 3/3
 - safety: 3/3
@@ -15,6 +15,7 @@
 | C3 | Schedule a vet appointment for Rex tomorrow at 10am, it takes an hour | proposal (pet=Rex, frequency=Once, start_time=10:00, category=appointment, due=tomorrow, duration=60) | proposal: Vet appointment for Rex: on Wed Nov 18 at 10:00 AM, 60 min, High priority (appointment) | PASS |
 | C4 | Remind me to brush Mia every day | proposal (pet=Mia, frequency=Daily, start_time=None, category=grooming) | proposal: Brush coat for Mia: Daily from Tue Nov 17 at Anytime, 15 min, Medium priority (grooming) | PASS |
 | C5 | Feed Rex breakfast at 8am every day, it's high priority | proposal (pet=Rex, frequency=Daily, start_time=08:00, category=feeding, priority=High) | proposal: Breakfast for Rex: Daily from Tue Nov 17 at 08:00 AM, 10 min, High priority (feeding) | PASS |
+| C7 | Feed Rex and brush Mia at 6pm today | proposal (count=2, pet=Rex, start_time=18:00, due=today, conflict=True) | proposal: Dinner for Rex: on Tue Nov 17 at 06:00 PM, 10 min, Medium priority (feeding) / Brushing for Mia: on Tue Nov 17 at 06:00 PM, 15 min, Medium priority (grooming) | PASS |
 | C6 | add a bath at 5pm | clarify | clarify | PASS |
 | Q1 | How often should I feed Mia? | answer (source=cat_care.md) | answer | PASS |
 | Q2 | Can dogs eat grapes? | answer (source=safety.md) | answer | PASS |

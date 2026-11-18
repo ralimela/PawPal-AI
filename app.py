@@ -44,17 +44,34 @@ def show_reply(reply: Reply, owner: Owner) -> None:
         st.warning(reply.message)
     elif reply.kind == R.PROPOSAL:
         proposal = reply.proposal
-        st.info(f"**Proposed task:** {proposal.summary()}\n\n"
-                "Nothing is saved until you confirm.")
-        if proposal.assumptions:
-            st.caption("I filled in: " + " ".join(proposal.assumptions))
-        for warning in proposal.warnings:
-            st.warning(f"⚠️ Time conflict. {warning}")
+        count = len(proposal.items)
+        heading = "Proposed task" if count == 1 else f"Proposed tasks ({count})"
+        lines = "\n".join(f"- {item.summary()}" for item in proposal.items)
+        st.info(f"**{heading}:**\n\n{lines}\n\nNothing is saved until you confirm.")
+        for item in proposal.items:
+            if item.assumptions:
+                label = "I filled in" if count == 1 else f"For '{item.task.title}', I filled in"
+                st.caption(f"{label}: " + " ".join(item.assumptions))
+
+        if proposal.needs_overlap_approval:
+            # The owner may overlap tasks on purpose (e.g. feeding two pets together),
+            # so warn and ask for explicit approval instead of blocking.
+            st.warning("⚠️ **These times overlap:**\n\n"
+                       + "\n".join(f"- {w}" for w in proposal.warnings)
+                       + "\n\nYou might be doing this on purpose. Do you want to add "
+                       + ("it" if count == 1 else "them") + " anyway?")
+            confirm_label = "✅ Yes, add anyway"
+        else:
+            confirm_label = "✅ Confirm and add" + (f" all {count}" if count > 1 else "")
+
         col1, col2 = st.columns(2)
-        if col1.button("✅ Confirm and add", type="primary"):
+        if col1.button(confirm_label, type="primary"):
             try:
-                confirm_proposal(owner, proposal)
-                st.session_state.flash = f"Added '{proposal.task.title}' for {proposal.pet_name}."
+                added = confirm_proposal(owner, proposal,
+                                         approve_overlaps=proposal.needs_overlap_approval)
+                names = ", ".join(f"'{t.title}' for {t.pet_name}" for t in added)
+                note = " (overlap approved)" if proposal.needs_overlap_approval else ""
+                st.session_state.flash = f"Added {names}{note}."
             except ValueError as err:
                 st.session_state.flash = f"Couldn't add the task: {err}"
             del st.session_state.ai_reply
@@ -262,6 +279,6 @@ with st.expander("📅 7-day overview"):
     st.table([{"Day": f"{d:%a %b %d}",
                "Tasks": len(tasks),
                "Minutes": sum(t.duration_minutes for t in tasks),
-               "Conflicts": len(scheduler.detect_conflicts(d)) or "",
+               "Conflicts": str(len(scheduler.detect_conflicts(d)) or ""),  # text only, so the column has one type
                "What's planned": ", ".join(f"{t.title} ({t.pet_name})" for t in tasks) or "-"}
               for d, tasks in week.items()])

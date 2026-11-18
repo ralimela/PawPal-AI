@@ -2,7 +2,7 @@
 
 PawPal+ AI helps busy pet owners plan daily care. On top of the original scheduler, it adds an **AI Assistant** that understands plain English:
 
-- **Smart Add (agent):** type *"Give Mia her flea medicine every Monday at 2:30pm"* and PawPal+ builds the task, checks it against your real schedule, warns you about clashes, and adds it **only after you confirm**.
+- **Smart Add (agent):** type *"Give Mia her flea medicine every Monday at 2:30pm"* (or up to 3 tasks in one message) and PawPal+ builds the tasks, checks them against your real schedule and each other, and adds them **only after you confirm**. If times overlap, it asks whether you want them anyway.
 - **Ask PawPal (RAG):** ask *"How often should I feed Mia?"* and get a short answer grounded in PawPal+'s own pet care guides, personalized to Mia's species and age, with the sources cited.
 - **Guardrails throughout:** emergencies and medication-dose questions go straight to a "contact your vet" message, questions the guides don't cover get an honest "I don't know", and invalid AI output never reaches your schedule.
 
@@ -32,15 +32,15 @@ The original UML class diagram is in [`diagrams/uml_final.mmd`](diagrams/uml_fin
 
 | Feature | Type | Where |
 |---|---|---|
-| **Smart Add**: plain English → validated task proposal → user confirms | Agentic workflow (plan, act, check, repair) | `ai/task_agent.py` |
+| **Smart Add**: plain English (1–3 tasks) → validated proposal → user confirms; overlaps need explicit approval | Agentic workflow (plan, act, check, repair) | `ai/task_agent.py` |
 | **Ask PawPal**: answers grounded in 6 pet care guides, with citations | RAG | `ai/retriever.py`, `ai/care_assistant.py`, `knowledge/` |
 | **Orchestrator**: one input box that routes to safety, the agent, or RAG | Orchestration | `ai/orchestrator.py` |
 | **Safety guardrail**: emergencies and dose questions blocked before any AI call | Input guardrail | `ai/safety.py` |
 | **Answer verification**: refusal check, dose filter, citation check | Output guardrail | `ai/care_assistant.py` |
-| **Human in the loop**: nothing is saved until the owner clicks Confirm | Human oversight | `app.py`, `confirm_proposal()` |
+| **Human in the loop**: nothing is saved until the owner clicks Confirm; overlapping tasks need a second, explicit "Yes, add anyway" | Human oversight | `app.py`, `confirm_proposal()` |
 | **Agent trace + log file**: every step recorded and viewable | Logging | `ai/trace.py`, `logs/pawpal_ai.log` |
-| **Evaluation harness**: 18 scripted cases, markdown results table | Reliability testing | `evaluate.py`, `eval_cases.json` |
-| **75 new offline tests** using a fake LLM (`MockClient`) | Automated tests | `tests/test_ai_*.py` |
+| **Evaluation harness**: 19 scripted cases, markdown results table | Reliability testing | `evaluate.py`, `eval_cases.json` |
+| **83 new offline tests** using a fake LLM (`MockClient`) | Automated tests | `tests/test_ai_*.py` |
 
 The AI features are part of the real app, not a separate demo: a confirmed Smart Add task appears in the existing schedule table, gets conflict warnings, repeats daily or weekly, and can be marked done like any other task. Ask PawPal reads the owner's actual pets to personalize answers.
 
@@ -56,7 +56,7 @@ Every request typed into the AI Assistant follows the same path:
 2. **Safety guardrail (rules, no AI):** emergencies ("Rex ate chocolate") and dose questions ("how many mg…") get a "contact your vet" message. The AI is never called.
 3. **Route (rules, no AI):** words like *add, schedule, remind* or care verbs like *walk, feed, give* mean a **command**; question words or a "?" mean a **question**; anything else gets "Did you want to add a task or ask a question?"
 4. **Command → Smart Add agent:**
-   *Parse* (Gemini turns the request into JSON, using `null` for anything not stated) → *Validate* (does the pet exist? the existing `Task` class checks priority, frequency, and duration; dates can't be in the past) → *Repair* (one retry, sending Gemini the exact problems) → *Fallback* ("please use the manual form") → *Check* (the existing `Scheduler.detect_conflicts()` looks for clashes over the next 7 days) → *Propose* (task + every assumed default + conflict warnings) → **Human confirms** → `Pet.add_task()`.
+   *Parse* (Gemini turns the request into a JSON list of 1–3 tasks, using `null` for anything not stated) → *Validate* (every task: does the pet exist? the existing `Task` class checks priority, frequency, and duration; dates can't be in the past; all tasks must be valid or none are used) → *Repair* (one retry, sending Gemini the exact problems, labeled by task number) → *Fallback* ("please use the manual form") → *Check* (the existing `Scheduler.detect_conflicts()` looks for clashes with the schedule **and between the new tasks**, over the next 7 days for repeating tasks) → *Propose* (tasks + every assumed default + overlap warnings) → **Human confirms**, and if anything overlaps, must explicitly approve it ("Yes, add anyway") → `Pet.add_task()` for all tasks together.
 5. **Question → Ask PawPal (RAG):**
    *Personalize* (the pet's name becomes its species for search; age becomes puppy/kitten, adult, or senior) → *Retrieve* (keyword search over heading-sized chunks of `knowledge/`; if no chunk has enough of the question's words, refuse without calling the AI) → *Generate* (Gemini answers only from the numbered sections and cites them) → *Verify* (respect the model's refusal, block any medication amount, drop citations to sections that weren't provided).
 
@@ -91,9 +91,9 @@ The app also runs **without a key**: the AI Assistant switches to offline mode, 
 streamlit run app.py          # the web app (section "2. AI Assistant")
 python ai_demo.py             # end-to-end CLI demo with Gemini (about 5 API calls)
 python ai_demo.py --mock      # the same demo offline, with scripted model replies
-python -m pytest              # 99 automated tests, all offline
-python evaluate.py --mock     # 18-case evaluation, offline
-python evaluate.py            # 18-case evaluation with Gemini (about 12 API calls)
+python -m pytest              # 107 automated tests, all offline
+python evaluate.py --mock     # 19-case evaluation, offline
+python evaluate.py            # 19-case evaluation with Gemini (about 13 API calls)
 python main.py                # the original scheduler demo (no AI)
 ```
 
@@ -114,9 +114,9 @@ The model is set in one place, `DEFAULT_MODEL` in `ai/llm_client.py` (`gemini-3.
 | `ai/trace.py`, `ai/reply.py` | Agent trace + logging; the shared reply type |
 | `knowledge/` | 6 pet care guides (dogs, cats, health, safety, routines, other pets) |
 | `ai_demo.py` | CLI end-to-end demo |
-| `evaluate.py`, `eval_cases.json` | Evaluation harness and its 18 cases |
+| `evaluate.py`, `eval_cases.json` | Evaluation harness and its 19 cases |
 | `eval_results.md` | Latest live evaluation results |
-| `tests/` | 24 original + 75 new tests |
+| `tests/` | 24 original + 83 new tests |
 | `diagrams/architecture.mmd` | System architecture diagram |
 | `model_card.md` | Limitations, ethics, evaluation, and AI collaboration reflection |
 
@@ -146,6 +146,17 @@ All output below is real, from `python ai_demo.py` with **Gemini (`gemini-3.5-fl
   -> CLARIFY: Which pet is this for: Rex or Mia?
      trace: ROUTE: command | PARSE: attempt 1: {"pet": null, "title": "Bath", ...} | VALIDATE: needs the user
 ```
+
+**2b. Two tasks in one message that overlap: the owner decides** *(offline run with `python ai_demo.py --mock`; this feature was added after the live run)*
+```
+[3] "Feed Rex and brush Mia at 6pm today"
+  -> PROPOSAL: 1) Dinner for Rex: on Tue Nov 17 at 06:00 PM, 10 min, Medium priority (feeding)
+              2) Brushing for Mia: on Tue Nov 17 at 06:00 PM, 15 min, Medium priority (grooming)
+     WARNING (overlap): Tue Nov 17: Dinner (Rex, 06:00 PM) and Brushing (Mia, 06:00 PM) overlap, and both are in this request
+     trace: ... | VALIDATE: OK: 2 task(s); filled in defaults: 6 | CHECK: 1 conflict(s) | PROPOSE: ... -> waiting for the user to approve the overlap
+     user clicked "Yes, add anyway" (overlap approved) -> 2 task(s) added to the schedule
+```
+In the app, the card shows *"⚠️ These times overlap: … You might be doing this on purpose. Do you want to add them anyway?"* with **✅ Yes, add anyway** and **✖ Cancel**. In code, `confirm_proposal()` refuses overlapping tasks unless `approve_overlaps=True`, so the approval can't be skipped.
 
 **3. Ask PawPal: a personalized, cited answer**
 ```
@@ -206,6 +217,10 @@ Schedule for Monday Nov 23 after the assistant's changes
 | "What's the best pizza place in town?" | Retrieval evidence check | Refused, no AI call | ✅ "I don't know" |
 | "What should I feed my rabbit?" | Evidence check + prompt rules | Only the "other pets" guide is retrieved (no dog/cat feeding sections); the answer refers the owner to a vet | ✅ Passed live evaluation |
 | "add a bath at 5pm" (two pets) | Validation | Asks which pet instead of guessing | ✅ Clarify |
+| "Feed Rex and brush Mia at 6pm today" | Conflict check + human approval | Both tasks proposed with an overlap alert; added only after "Yes, add anyway" | ✅ Owner decides (tested) |
+| Confirming overlapping tasks without approval | `confirm_proposal()` | Raises an error; nothing is saved | ✅ Can't be skipped (tested) |
+| One of two tasks in a message is invalid | All-or-nothing validation | Neither is saved; the repair prompt says which task to fix ("task 2: …") | ✅ (tested) |
+| More than 3 tasks in one message | Validation | Asks the owner to split the request | ✅ Clarify (tested) |
 | Model replies with `"frequency": "Every day"` | Validation + repair | Problem sent back to the model; fixed on retry | ✅ Repaired (tested) |
 | Model replies with text instead of JSON, twice | Repair limit + fallback | Stops after 2 attempts, points to the manual form, saves nothing | ✅ Safe failure (tested) |
 | Model's answer contains "25 mg" | Output dose filter | Answer replaced with the dose message | ✅ Blocked (tested) |
@@ -222,28 +237,29 @@ Schedule for Monday Nov 23 after the assistant's changes
 - **Keyword retrieval instead of embeddings.** I reused and improved the retriever from my DocuBot project, which I can explain line by line. *Trade-off:* it matches words, not meaning, so synonyms can be missed. The knowledge base is small enough that this works well for the 18 evaluation cases.
 - **A small, conservative knowledge base.** Six guides cover everyday dog and cat care only, with no doses or diagnoses. *Trade-off:* PawPal+ says "I don't know" more often, which is the safer failure for health topics.
 - **One repair attempt, then stop.** More retries rarely help and cost quota. *Trade-off:* a request the model gets wrong twice has to go through the manual form.
-- **Conflicts are warnings, not blocks.** The owner may want overlapping tasks (feeding two pets at once), so PawPal+ warns and lets them decide.
+- **Overlaps need approval, not a block.** The owner may want overlapping tasks on purpose (feeding two pets at once), so PawPal+ shows the overlap and asks "Do you want to add them anyway?" instead of refusing. This was my own design decision (see the model card). *Trade-off:* an owner who clicks through without reading can still create a clash, but the schedule keeps showing a conflict banner afterwards.
+- **Several tasks per message, all or nothing.** Up to 3 tasks can be added at once; if any one is invalid, none are saved, so the owner never ends up with half a request.
 
 ---
 
 ## 🧪 Testing summary
 
-**Automated tests: 99 passed** (24 original scheduler tests + 75 new AI tests). All run offline with `MockClient`, which plays the part of Gemini, including failure cases like broken JSON, wrong values, made-up citations, and API errors.
+**Automated tests: 107 passed** (24 original scheduler tests + 83 new AI tests). All run offline with `MockClient`, which plays the part of Gemini, including failure cases like broken JSON, wrong values, made-up citations, and API errors.
 
 ```
 $ python -m pytest
-collected 99 items
+collected 107 items
 
-tests\test_ai_care_assistant.py ...................                      [ 19%]
-tests\test_ai_orchestrator.py ..................                         [ 37%]
-tests\test_ai_safety.py .....................                            [ 58%]
-tests\test_ai_task_agent.py .................                            [ 75%]
+tests\test_ai_care_assistant.py ...................                      [ 17%]
+tests\test_ai_orchestrator.py ..................                         [ 34%]
+tests\test_ai_safety.py .....................                            [ 54%]
+tests\test_ai_task_agent.py .........................                    [ 77%]
 tests\test_pawpal.py ........................                            [100%]
 
-============================= 99 passed in 0.14s ==============================
+============================= 107 passed in 0.23s =============================
 ```
 
-**Evaluation: 18/18 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)):
+**Evaluation: 18/18 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)). A 19th case (C7, two overlapping tasks in one message) was added afterwards with the multi-task feature; it passes offline (`--mock`, 19/19) and still needs a live run.
 
 | Group | Cases | What is checked | Live result |
 |---|---|---|---|

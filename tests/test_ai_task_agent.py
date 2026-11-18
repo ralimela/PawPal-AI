@@ -42,10 +42,10 @@ def test_full_request_becomes_a_proposal_but_is_not_saved(owner):
     reply = propose_task("Walk Rex every day at 7am starting tomorrow, high priority, 30 min",
                          owner, client, TODAY)
     assert reply.kind == R.PROPOSAL
-    task = reply.proposal.task
+    task = reply.proposal.items[0].task
     assert (task.title, task.frequency, task.start_time, task.priority) == \
            ("Morning walk", "Daily", time(7, 0), "High")
-    assert reply.proposal.assumptions == []
+    assert reply.proposal.items[0].assumptions == []
     assert total_tasks(owner) == 0  # nothing saved until the user confirms
 
 
@@ -62,18 +62,18 @@ def test_confirm_adds_the_task_to_the_right_pet(owner):
 def test_missing_fields_get_defaults_and_each_is_listed_as_an_assumption(owner):
     client = MockClient([js(pet="Rex", title="Brush coat", category="grooming")])
     reply = propose_task("brush Rex", owner, client, TODAY)
-    task = reply.proposal.task
+    task = reply.proposal.items[0].task
     assert (task.frequency, task.priority, task.due_date, task.start_time, task.duration_minutes) == \
            ("Once", "Medium", TODAY, None, 15)
-    assert len(reply.proposal.assumptions) == 5  # repeat, priority, day, time, length
+    assert len(reply.proposal.items[0].assumptions) == 5  # repeat, priority, day, time, length
 
 
 def test_meds_default_to_high_priority_with_a_dose_note(owner):
     client = MockClient([js(pet="Mia", title="Flea medicine", category="meds", frequency="Weekly",
                             due_date="2026-11-23", start_time="14:30")])
     reply = propose_task("Give Mia her flea medicine every Monday at 2:30pm", owner, client, TODAY)
-    assert reply.proposal.task.priority == "High"
-    assert MEDS_NOTE in reply.proposal.assumptions
+    assert reply.proposal.items[0].task.priority == "High"
+    assert MEDS_NOTE in reply.proposal.items[0].assumptions
 
 
 # ---------- repair loop and fallback ----------
@@ -84,7 +84,7 @@ def test_invalid_value_is_repaired_on_the_second_attempt(owner):
         js(pet="Rex", title="Walk", category="walk", frequency="Daily"),
     ])
     reply = propose_task("walk Rex every day", owner, client, TODAY)
-    assert reply.kind == R.PROPOSAL and reply.proposal.task.frequency == "Daily"
+    assert reply.kind == R.PROPOSAL and reply.proposal.items[0].task.frequency == "Daily"
     assert reply.trace.has("REPAIR")
     # The repair prompt told the model exactly what was wrong
     assert "frequency must be one of" in client.prompts[1]
@@ -134,7 +134,7 @@ def test_single_pet_is_assumed_and_says_so():
     owner.add_pet(Pet("Rex", "Dog", 4))
     reply = propose_task("add a walk", owner, MockClient([js(title="Walk", category="walk")]), TODAY)
     assert reply.kind == R.PROPOSAL
-    assert "You have one pet" in reply.proposal.assumptions[0]
+    assert "You have one pet" in reply.proposal.items[0].assumptions[0]
 
 
 def test_owner_without_pets_is_told_to_add_one():
@@ -181,3 +181,90 @@ def test_parse_helpers():
         parse_json("[1, 2]")
     assert parse_time("7 AM") == parse_time("07:00") == time(7, 0)
     assert parse_time("2:30 pm") == time(14, 30)
+
+
+# ---------- several tasks in one request ----------
+
+def tasks_reply(*tasks) -> str:
+    """A model reply in the {"tasks": [...]} format."""
+    return json.dumps({"tasks": [json.loads(t) for t in tasks]})
+
+
+def test_two_tasks_in_one_request_become_one_proposal(owner):
+    client = MockClient([tasks_reply(
+        js(pet="Rex", title="Walk", category="walk", start_time="07:00"),
+        js(pet="Mia", title="Breakfast", category="feeding", start_time="08:00"))])
+    reply = propose_task("walk Rex at 7am and feed Mia at 8am", owner, client, TODAY)
+    assert reply.kind == R.PROPOSAL
+    assert [i.pet_name for i in reply.proposal.items] == ["Rex", "Mia"]
+    assert reply.proposal.warnings == [] and not reply.proposal.needs_overlap_approval
+    confirm_proposal(owner, reply.proposal)
+    assert sorted(t.title for t in owner.get_all_tasks()) == ["Breakfast", "Walk"]
+
+
+def test_overlapping_tasks_in_one_request_are_flagged(owner):
+    client = MockClient([tasks_reply(
+        js(pet="Rex", title="Walk", category="walk", start_time="07:00"),
+        js(pet="Mia", title="Breakfast", category="feeding", start_time="07:00"))])
+    reply = propose_task("walk Rex and feed Mia at 7am", owner, client, TODAY)
+    assert reply.proposal.needs_overlap_approval
+    assert reply.proposal.warnings == [
+        "Tue Nov 17: Walk (Rex, 07:00 AM) and Breakfast (Mia, 07:00 AM) overlap, "
+        "and both are in this request"]
+    assert total_tasks(owner) == 0  # the check removed both temporary tasks again
+
+
+def test_overlap_cannot_be_confirmed_without_explicit_approval(owner):
+    client = MockClient([tasks_reply(
+        js(pet="Rex", title="Walk", category="walk", start_time="07:00"),
+        js(pet="Mia", title="Breakfast", category="feeding", start_time="07:00"))])
+    proposal = propose_task("walk Rex and feed Mia at 7am", owner, client, TODAY).proposal
+    with pytest.raises(ValueError, match="approve the overlap"):
+        confirm_proposal(owner, proposal)
+    assert total_tasks(owner) == 0
+
+    confirm_proposal(owner, proposal, approve_overlaps=True)  # the owner clicked "Yes, add anyway"
+    assert total_tasks(owner) == 2
+
+
+def test_overlap_with_existing_schedule_also_needs_approval(owner):
+    owner.pets[1].add_task(Task("Vet checkup", "appointment", 60, "Medium", TODAY,
+                                start_time=time(14, 0)))
+    client = MockClient([js(pet="Mia", title="Flea medicine", category="meds",
+                            due_date="2026-11-17", start_time="14:30")])
+    proposal = propose_task("flea medicine for Mia at 2:30pm", owner, client, TODAY).proposal
+    with pytest.raises(ValueError):
+        confirm_proposal(owner, proposal)
+
+
+def test_one_bad_task_means_nothing_is_saved(owner):
+    bad = tasks_reply(js(pet="Rex", title="Walk", category="walk"),
+                      js(pet="Mia", title="Breakfast", category="feeding", frequency="sometimes"))
+    reply = propose_task("walk Rex and feed Mia", owner, MockClient([bad, bad]), TODAY)
+    assert reply.kind == R.ERROR and "task 2: frequency" in reply.message
+    assert total_tasks(owner) == 0
+
+
+def test_bad_second_task_is_repaired_with_a_labeled_problem(owner):
+    bad = tasks_reply(js(pet="Rex", title="Walk", category="walk"),
+                      js(pet="Mia", title="Breakfast", category="feeding", frequency="sometimes"))
+    good = tasks_reply(js(pet="Rex", title="Walk", category="walk"),
+                       js(pet="Mia", title="Breakfast", category="feeding", frequency="Daily"))
+    client = MockClient([bad, good])
+    reply = propose_task("walk Rex and feed Mia daily", owner, client, TODAY)
+    assert reply.kind == R.PROPOSAL and len(reply.proposal.items) == 2
+    assert "task 2: frequency must be one of" in client.prompts[1]
+
+
+def test_missing_pet_in_second_task_asks_about_that_task(owner):
+    client = MockClient([tasks_reply(js(pet="Rex", title="Walk", category="walk"),
+                                     js(title="Bath", category="grooming"))])
+    reply = propose_task("walk Rex and give a bath", owner, client, TODAY)
+    assert reply.kind == R.CLARIFY
+    assert reply.message.startswith("Task 2 (Bath): Which pet") and "Rex or Mia" in reply.message
+
+
+def test_more_than_three_tasks_asks_to_split(owner):
+    four = tasks_reply(*[js(pet="Rex", title=f"Task {n}", category="other") for n in range(4)])
+    reply = propose_task("four things for Rex", owner, MockClient([four]), TODAY)
+    assert reply.kind == R.CLARIFY and "up to 3 tasks" in reply.message

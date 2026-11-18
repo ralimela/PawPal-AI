@@ -1,15 +1,19 @@
 """Smart Add: turn a plain-English request into a verified task proposal (an agent loop).
 
-    PARSE     Gemini turns the request into JSON (null for anything not stated).
-    VALIDATE  Our code checks every field. Task() itself rejects bad values.
+    PARSE     Gemini turns the request into JSON: a list of 1 to 3 tasks
+              (null for anything the owner didn't say).
+    VALIDATE  Our code checks every field of every task. Task() itself rejects bad values.
     REPAIR    If parsing or validation fails, Gemini gets ONE retry with the exact problems.
     FALLBACK  Still invalid -> stop and point the user to the manual form.
-    CHECK     Scheduler.detect_conflicts() looks for clashes with existing tasks.
-    PROPOSE   Return the task + assumptions + warnings. NOTHING is saved yet.
-    CONFIRM   Only confirm_proposal(), called when the user clicks Confirm, adds it.
+    CHECK     Scheduler.detect_conflicts() looks for clashes: new tasks vs. the existing
+              schedule AND new tasks vs. each other.
+    PROPOSE   Return the tasks + assumptions + warnings. NOTHING is saved yet.
+    CONFIRM   Only confirm_proposal(), called when the user clicks Confirm, adds them.
+              If anything overlaps, the user must explicitly approve the overlap.
 
 The AI never writes to the schedule directly; the existing pawpal_system code
-is the guardrail, and the human is the final check.
+is the guardrail, and the human is the final check. All tasks in one request
+are saved together or not at all.
 """
 
 import json
@@ -28,18 +32,18 @@ DEFAULT_MINUTES = {"walk": 30, "feeding": 10, "meds": 5, "grooming": 15,
                    "appointment": 60, "other": 15}
 MAX_MINUTES = 480
 MAX_ATTEMPTS = 2  # the first parse + one repair
+MAX_TASKS_PER_REQUEST = 3
 MEDS_NOTE = ("PawPal+ doesn't check medication names or doses. "
              "Follow your vet's instructions exactly.")
 
 
 @dataclass
-class Proposal:
-    """A validated task that is waiting for the user to confirm it."""
+class ProposedTask:
+    """One validated task inside a proposal."""
 
     task: Task
     pet_name: str
     assumptions: list[str] = field(default_factory=list)  # defaults we filled in
-    warnings: list[str] = field(default_factory=list)     # schedule conflicts
 
     def summary(self) -> str:
         """One readable line, e.g. 'Morning walk for Rex: Daily from Wed Nov 18 at 07:00 AM, 30 min, High'."""
@@ -48,6 +52,25 @@ class Proposal:
         start = "on" if t.frequency == "Once" else f"{t.frequency} from"
         return (f"{t.title} for {self.pet_name}: {start} {t.due_date:%a %b %d} at {when}, "
                 f"{t.duration_minutes} min, {t.priority} priority ({t.category})")
+
+
+@dataclass
+class Proposal:
+    """One or more validated tasks waiting for the user to confirm them."""
+
+    items: list[ProposedTask]
+    warnings: list[str] = field(default_factory=list)  # time conflicts the user must approve
+
+    @property
+    def needs_overlap_approval(self) -> bool:
+        """True if confirming means knowingly accepting overlapping tasks."""
+        return bool(self.warnings)
+
+    def summary(self) -> str:
+        """One line per task (numbered when there are several)."""
+        if len(self.items) == 1:
+            return self.items[0].summary()
+        return "\n".join(f"{n}) {item.summary()}" for n, item in enumerate(self.items, start=1))
 
 
 class ValidationProblem(Exception):
@@ -70,18 +93,22 @@ def build_parse_prompt(request: str, owner: Owner, today: date,
     """The structured-output prompt; on a repair attempt it includes the problems to fix."""
     pets = ", ".join(f"{p.name} ({p.species}, {p.age} years)" for p in owner.pets)
     pet_names = ", ".join(f'"{p.name}"' for p in owner.pets)
-    prompt = f"""You turn a pet owner's request into ONE task for the PawPal+ scheduler.
+    prompt = f"""You turn a pet owner's request into tasks for the PawPal+ scheduler.
 
 Today is {today:%A}, {today.isoformat()}.
 The owner's pets: {pets}
 
 Request: "{request}"
 
-Reply with ONLY a JSON object with exactly these keys:
-{{"pet": ..., "title": ..., "category": ..., "frequency": ..., "due_date": ...,
- "start_time": ..., "priority": ..., "duration_minutes": ...}}
+Reply with ONLY a JSON object of this form:
+{{"tasks": [{{"pet": ..., "title": ..., "category": ..., "frequency": ..., "due_date": ...,
+ "start_time": ..., "priority": ..., "duration_minutes": ...}}]}}
 
 Rules:
+- Usually the request describes one task. If it clearly describes several (for example
+  "walk Rex at 7am and feed Mia at 8am"), return one object per task, in the order they
+  are mentioned, at most {MAX_TASKS_PER_REQUEST}. Never split one task into several.
+- A detail that the owner clearly gives for all tasks ("both every day") applies to each.
 - pet: exactly one of {pet_names}. Use null if the request does not clearly name one of them.
 - title: a short task name without the pet's name, like "Morning walk" or "Flea medicine".
 - category: one of {", ".join(CATEGORIES)}.
@@ -102,7 +129,7 @@ Your previous reply was:
 It had these problems:
 {bullet_list}
 
-Fix them and reply with the corrected JSON object only.
+Fix them and reply with the corrected JSON object ({{"tasks": [...]}}) only.
 """
     return prompt
 
@@ -234,26 +261,80 @@ def validate(data: dict, owner: Owner, today: date) -> tuple[Task, Pet, list[str
     return task, pet, assumptions
 
 
+def validate_all(data: dict, owner: Owner, today: date) -> list[tuple[Task, Pet, list[str]]]:
+    """Validate every task in the reply. All of them must be valid, or none are used.
+
+    Accepts {"tasks": [...]} and, for robustness, a single task object.
+    Problems are labeled "task 2: ..." when there are several, so the repair
+    prompt can tell the model exactly which task to fix.
+    """
+    items = data["tasks"] if isinstance(data.get("tasks"), list) else [data]
+    if not items:
+        raise ValidationProblem(["the tasks list is empty; return at least one task"])
+    if len(items) > MAX_TASKS_PER_REQUEST:
+        raise ValidationProblem([f"I can add up to {MAX_TASKS_PER_REQUEST} tasks at a time. "
+                                 "Please split your request into smaller ones."], needs_user=True)
+
+    several = len(items) > 1
+    results, problems = [], []
+    for number, item in enumerate(items, start=1):
+        label = f"task {number}: " if several else ""
+        if not isinstance(item, dict):
+            problems.append(f"{label}must be a JSON object")
+            continue
+        try:
+            results.append(validate(item, owner, today))
+        except ValidationProblem as err:
+            if err.needs_user:
+                title = item.get("title") if isinstance(item.get("title"), str) else None
+                prefix = f"Task {number} ({title}): " if several and title else (
+                    f"Task {number}: " if several else "")
+                raise ValidationProblem([prefix + err.problems[0]], needs_user=True) from err
+            problems.extend(label + p for p in err.problems)
+    if problems:
+        raise ValidationProblem(problems)
+    return results
+
+
 # ---------------------------------------------------------------- conflicts
 
-def find_conflicts(owner: Owner, pet: Pet, task: Task) -> list[str]:
-    """Warn about clashes with existing tasks, checked over the next 7 days for repeating tasks."""
-    if task.start_time is None:
+def find_conflicts(owner: Owner, new: list[tuple[Pet, Task]]) -> list[str]:
+    """Warn about time clashes involving the new tasks.
+
+    Checks new tasks against the existing schedule AND against each other,
+    using the existing Scheduler.detect_conflicts(). Repeating tasks are
+    checked over a week, since a clash may only happen on some days.
+    """
+    timed = [task for _, task in new if task.start_time is not None]
+    if not timed:
         return []
+    first = min(task.due_date for task in timed)
+    last = max(task.due_date for task in timed)
+    if any(task.frequency != "Once" for task in timed):
+        last += timedelta(days=6)
+    is_new = lambda t: any(t is task for _, task in new)
+
     scheduler = Scheduler(owner)
-    days = 1 if task.frequency == "Once" else 7
-    warnings = []
-    pet.add_task(task)  # temporarily, so the existing detect_conflicts() can see it
+    warnings, added = [], []
     try:
-        for offset in range(days):
-            day = task.due_date + timedelta(days=offset)
+        for pet, task in new:  # temporarily, so detect_conflicts() can see them
+            pet.add_task(task)
+            added.append((pet, task))
+        for offset in range((last - first).days + 1):
+            day = first + timedelta(days=offset)
             for a, b in scheduler.detect_conflicts(day):
-                if a is task or b is task:
-                    other = b if a is task else a
-                    warnings.append(f"{day:%a %b %d}: overlaps {other.title} ({other.pet_name}) "
-                                    f"at {other.start_time:%I:%M %p}")
+                if is_new(a) and is_new(b):
+                    warnings.append(f"{day:%a %b %d}: {a.title} ({a.pet_name}, {a.start_time:%I:%M %p}) "
+                                    f"and {b.title} ({b.pet_name}, {b.start_time:%I:%M %p}) "
+                                    "overlap, and both are in this request")
+                elif is_new(a) or is_new(b):
+                    mine, other = (a, b) if is_new(a) else (b, a)
+                    prefix = "" if len(new) == 1 else f"{mine.title} ({mine.pet_name}) "
+                    warnings.append(f"{day:%a %b %d}: {prefix}overlaps {other.title} "
+                                    f"({other.pet_name}) at {other.start_time:%I:%M %p}")
     finally:
-        pet.remove_task(task)  # never leave the unconfirmed task in the schedule
+        for pet, task in added:  # never leave unconfirmed tasks in the schedule
+            pet.remove_task(task)
     return list(dict.fromkeys(warnings))  # drop duplicates, keep order
 
 
@@ -283,10 +364,10 @@ def propose_task(request: str, owner: Owner, client, today: date | None = None,
             trace.add(step, f"AI call failed: {err}")
             return Reply(R.ERROR, "I couldn't reach the AI right now. Please try again, or "
                                   "use the manual form.", trace=trace)
-        trace.add(step, f"attempt {attempt}: {' '.join(raw.split())[:200]}")  # one line
+        trace.add(step, f"attempt {attempt}: {' '.join(raw.split())[:300]}")  # one line
 
         try:
-            task, pet, assumptions = validate(parse_json(raw), owner, today)
+            validated = validate_all(parse_json(raw), owner, today)
         except ValidationProblem as err:
             if err.needs_user:
                 trace.add("VALIDATE", f"needs the user: {err}")
@@ -295,11 +376,15 @@ def propose_task(request: str, owner: Owner, client, today: date | None = None,
         except ValueError as err:  # broken JSON
             problems = [f"the reply was not a valid JSON object ({err})"]
         else:
-            trace.add("VALIDATE", f"OK; filled in defaults: {len(assumptions)}")
-            warnings = find_conflicts(owner, pet, task)
+            defaults = sum(len(assumptions) for _, _, assumptions in validated)
+            trace.add("VALIDATE", f"OK: {len(validated)} task(s); filled in defaults: {defaults}")
+            warnings = find_conflicts(owner, [(pet, task) for task, pet, _ in validated])
             trace.add("CHECK", f"{len(warnings)} conflict(s)" + (f": {warnings}" if warnings else ""))
-            proposal = Proposal(task, pet.name, assumptions, warnings)
-            trace.add("PROPOSE", f"{proposal.summary()} -> waiting for the user to confirm")
+            proposal = Proposal([ProposedTask(task, pet.name, assumptions)
+                                 for task, pet, assumptions in validated], warnings)
+            waiting = ("waiting for the user to approve the overlap" if warnings
+                       else "waiting for the user to confirm")
+            trace.add("PROPOSE", f"{' | '.join(i.summary() for i in proposal.items)} -> {waiting}")
             return Reply(R.PROPOSAL, proposal.summary(), proposal=proposal, trace=trace)
 
         trace.add("VALIDATE", f"attempt {attempt} rejected: {'; '.join(problems)}")
@@ -310,10 +395,21 @@ def propose_task(request: str, owner: Owner, client, today: date | None = None,
                           f"({'; '.join(problems)}). Please use the manual form.", trace=trace)
 
 
-def confirm_proposal(owner: Owner, proposal: Proposal) -> Task:
-    """The human-in-the-loop step: add the task only now, after the user clicked Confirm."""
-    pet = next((p for p in owner.pets if p.name == proposal.pet_name), None)
-    if pet is None:
-        raise ValueError(f"{proposal.pet_name} is no longer one of {owner.name}'s pets")
-    pet.add_task(proposal.task)
-    return proposal.task
+def confirm_proposal(owner: Owner, proposal: Proposal, approve_overlaps: bool = False) -> list[Task]:
+    """The human-in-the-loop step: add the tasks only now, after the user confirmed.
+
+    If the tasks overlap with each other or with the schedule, the user must
+    explicitly approve that (approve_overlaps=True); otherwise nothing is added.
+    All tasks are added together, or none are.
+    """
+    if proposal.needs_overlap_approval and not approve_overlaps:
+        raise ValueError("These tasks overlap. The owner must approve the overlap before adding them.")
+    pets = []
+    for item in proposal.items:
+        pet = next((p for p in owner.pets if p.name == item.pet_name), None)
+        if pet is None:
+            raise ValueError(f"{item.pet_name} is no longer one of {owner.name}'s pets")
+        pets.append(pet)
+    for pet, item in zip(pets, proposal.items):
+        pet.add_task(item.task)
+    return [item.task for item in proposal.items]

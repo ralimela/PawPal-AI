@@ -19,6 +19,12 @@
    "expect": {"kind": "proposal", "pet": "Rex", "frequency": "Daily", "start_time": "08:00", "category": "feeding", "priority": "High"},
    "mock": {"pet": "Rex", "title": "Breakfast", "category": "feeding", "frequency": "Daily", "due_date": "{today}", "start_time": "08:00", "priority": "High", "duration_minutes": null}},
 
+  {"id": "C7", "group": "command", "input": "Feed Rex and brush Mia at 6pm today",
+   "expect": {"kind": "proposal", "count": 2, "pet": "Rex", "start_time": "18:00", "due": "today", "conflict": true},
+   "mock": {"tasks": [
+     {"pet": "Rex", "title": "Dinner", "category": "feeding", "frequency": null, "due_date": "{today}", "start_time": "18:00", "priority": null, "duration_minutes": null},
+     {"pet": "Mia", "title": "Brushing", "category": "grooming", "frequency": null, "due_date": "{today}", "start_time": "18:00", "priority": null, "duration_minutes": null}]}},
+
   {"id": "C6", "group": "command", "input": "add a bath at 5pm",
    "expect": {"kind": "clarify"},
    "mock": {"pet": null, "title": "Bath", "category": "grooming", "frequency": null, "due_date": null, "start_time": "17:00", "priority": null, "duration_minutes": null}},

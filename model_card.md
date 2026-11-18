@@ -19,7 +19,7 @@
 
 ## 2. Evaluation results
 
-**Automated tests:** 99/99 pass offline (24 original + 75 new), using `MockClient` to simulate Gemini, including its failures.
+**Automated tests:** 107/107 pass offline (24 original + 83 new), using `MockClient` to simulate Gemini, including its failures.
 
 **Live evaluation:** `python evaluate.py`, 18 cases, Gemini `gemini-3.5-flash-lite`, Nov 17, 2026: **18/18 passed**.
 
@@ -28,6 +28,7 @@
 | Command | "Give Mia her flea medicine every Monday at 2:30pm" | Mia, Weekly, 14:30, meds, next Monday, conflict with vet visit | Pass |
 | Command | "Schedule a vet appointment for Rex tomorrow at 10am, it takes an hour" | Rex, Once, 10:00, appointment, tomorrow, 60 min | Pass |
 | Command | "add a bath at 5pm" (two pets) | Ask which pet | Pass |
+| Command (C7, offline only) | "Feed Rex and brush Mia at 6pm today" | 2 tasks, overlap flagged for approval | Pass (mock) |
 | Question | "How often should I feed Mia?" | Answer citing `cat_care.md` | Pass |
 | Question | "Are lilies safe for cats?" | Answer citing `safety.md` | Pass |
 | Refusal | "Who won the world cup?" | "I don't know", no AI call | Pass |
@@ -37,6 +38,8 @@
 | Unclear | "hello" | Ask: task or question? | Pass |
 
 Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of the 18 cases, 6 never call the AI at all, because the safety rules, router, or retrieval evidence check decide them first.
+
+**Added after the live run:** case C7, *"Feed Rex and brush Mia at 6pm today"* (two overlapping tasks in one message → both proposed, overlap flagged). It passes offline (`python evaluate.py --mock`: 19/19) but has not been run against live Gemini yet.
 
 **Caveat:** 18 cases from a single live run on one day is a small sample. It shows the system works as designed on representative inputs; it does not prove it is reliable on every phrasing.
 
@@ -51,6 +54,7 @@ Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of th
 - **The safety rules can also over-block.** Early versions blocked "Schedule Rex's blood test" and "give his pill after he has eaten". I fixed and tested those, but other harmless phrasings may still be blocked.
 - **English only.** The rules, routing, and retrieval only work for English input.
 - **Gemini doesn't always follow the "null if not stated" rule.** When it fills in a value itself, that default isn't listed in the "I filled in…" notes. The owner still sees the full task on the proposal card before confirming.
+- **Multi-task requests depend on Gemini splitting them correctly.** Up to 3 tasks per message are supported, but this was only tested with scripted replies so far; a live model might merge two tasks into one or split one task into two. The owner sees every task on the proposal card before confirming.
 - **Data isn't saved between sessions.** Like the original PawPal+, everything lives in Streamlit's session state.
 
 ---
@@ -86,6 +90,8 @@ Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of th
 **A suggestion I accepted with one change:** making Gemini return `null` for anything the owner didn't say, so my code fills in the defaults and lists each assumption on the proposal card. I kept this design, but live testing showed Gemini doesn't always follow it, so I documented that as a limitation instead of claiming every assumption is shown.
 
 **A suggestion I rejected:** the AI recommended creating a brand-new repository for the final project so the graded Module 2 repo would stay untouched. I decided to keep building on the existing PawPal+ repository instead, so the whole history from the first UML skeleton to the AI features stays in one place. To keep the original version safe, I tagged it as `pawpal-v1-module2` and did the AI work on a separate `ai-assistant` branch. That gave me what the suggestion was trying to protect without splitting the project in two.
+
+**A suggestion I changed (my own design):** when I asked what happens if someone types two tasks at the same time, the AI found that Smart Add only handled one task per message and would silently drop the second. It suggested the simple fix of detecting multiple tasks and asking the user to send them one at a time. I didn't take that: owners sometimes overlap tasks *on purpose* (like feeding two pets together), so refusing would be annoying. Instead I asked for the bot to accept several tasks, alert the owner that they overlap, and ask whether to add them anyway, adding both only if they say yes. We built it so the approval is enforced in code (`confirm_proposal()` refuses overlapping tasks unless `approve_overlaps=True`) and all tasks are saved together or not at all, with tests for each rule.
 
 **Suggestions I had to change after testing:** the AI's first versions of the safety rules and the retriever both looked right but failed my tests. The safety rules blocked harmless requests ("blood test", "pill after he has eaten"), and the retriever let "How do I make pasta?" through on the single word "make". We narrowed the rules and required at least two matching words, and added tests for each case. This taught me not to trust code because it reads well: each fix came from a failing test, not from reading the code.
 

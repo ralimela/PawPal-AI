@@ -22,11 +22,11 @@ flowchart TD
     end
 
     subgraph AGENT["Smart Add: ai/task_agent.py"]
-        PARSE["Parse with Gemini<br/>request → JSON, null if not stated"]
-        VAL{"Validate<br/>pet exists? Task() rules, dates, times"}
+        PARSE["Parse with Gemini<br/>request → JSON list of 1-3 tasks,<br/>null if not stated"]
+        VAL{"Validate every task<br/>pet exists? Task() rules, dates, times<br/>all valid or none"}
         REP["Repair once<br/>send the exact problems back"]
-        CHK["Check conflicts<br/>Scheduler.detect_conflicts(), 7 days"]
-        PROP["Proposal<br/>task + assumptions + warnings"]
+        CHK["Check overlaps<br/>vs. schedule AND vs. each other<br/>Scheduler.detect_conflicts(), 7 days"]
+        PROP["Proposal<br/>tasks + assumptions + overlap warnings"]
     end
 
     ROUTE -- "question" --> PERS --> RET
@@ -44,7 +44,10 @@ flowchart TD
     VAL -- "valid" --> CHK --> PROP
 
     PROP --> HUMAN{"👤 Human in the loop<br/>Confirm or Cancel"}
-    HUMAN -- "Confirm" --> CORE
+    HUMAN -- "Confirm (no overlap)" --> CORE
+    HUMAN -- "overlap found" --> APPROVE{"⚠️ These times overlap.<br/>Add them anyway?"}
+    APPROVE -- "Yes, add anyway" --> CORE
+    APPROVE -- "Cancel" --> DROP
     HUMAN -- "Cancel" --> DROP["nothing saved"]
 
     subgraph CORE["pawpal_system.py (unchanged core)"]
@@ -56,8 +59,8 @@ flowchart TD
     GEMINI -.-> PARSE
 
     subgraph TESTING["Testing and evaluation"]
-        PYTEST["pytest: 99 tests<br/>MockClient, offline"]
-        EVAL["evaluate.py<br/>18 cases → eval_results.md"]
+        PYTEST["pytest: 107 tests<br/>MockClient, offline"]
+        EVAL["evaluate.py<br/>19 cases → eval_results.md"]
         LOG["Agent trace + logs/pawpal_ai.log"]
     end
     TESTING -.checks.-> ORCH

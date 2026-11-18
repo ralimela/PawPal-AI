@@ -1,6 +1,6 @@
 """Reliability evaluation for the PawPal+ AI Assistant.
 
-    python evaluate.py           # live: real Gemini calls (about 12 requests)
+    python evaluate.py           # live: real Gemini calls (about 13 requests)
     python evaluate.py --mock    # offline: scripted model replies
 
 Each case in eval_cases.json says what SHOULD happen (the reply kind, and for
@@ -49,11 +49,13 @@ def check(case: dict, reply, today: date) -> list[str]:
         problems.append(f"should cite {expect['source']}, cited {reply.sources}")
 
     if reply.proposal:
-        task = reply.proposal.task
+        if "count" in expect and len(reply.proposal.items) != expect["count"]:
+            problems.append(f"count: expected {expect['count']} tasks, got {len(reply.proposal.items)}")
+        task = reply.proposal.items[0].task  # field checks apply to the first task
         want_due = {"today": today, "tomorrow": today + timedelta(days=1),
                     "next_monday": next_monday(today)}
         checks = {
-            "pet": reply.proposal.pet_name,
+            "pet": reply.proposal.items[0].pet_name,
             "frequency": task.frequency,
             "category": task.category,
             "priority": task.priority,
@@ -109,7 +111,8 @@ def main() -> int:
         group = by_group.setdefault(case["group"], [0, 0])
         group[0] += ok
         group[1] += 1
-        got = reply.kind + (f": {reply.proposal.summary()}" if reply.proposal else "")
+        got = reply.kind + (f": {' / '.join(i.summary() for i in reply.proposal.items)}"
+                            if reply.proposal else "")
         rows.append(f"| {case['id']} | {case['input']} | {describe(case)} | {got} | "
                     f"{'PASS' if ok else 'FAIL: ' + '; '.join(problems)} |")
         print(f"{case['id']:3} {'PASS' if ok else 'FAIL'}  {case['input']}"
