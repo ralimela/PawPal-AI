@@ -28,7 +28,7 @@
 | Command | "Give Mia her flea medicine every Monday at 2:30pm" | Mia, Weekly, 14:30, meds, next Monday, conflict with vet visit | Pass |
 | Command | "Schedule a vet appointment for Rex tomorrow at 10am, it takes an hour" | Rex, Once, 10:00, appointment, tomorrow, 60 min | Pass |
 | Command | "add a bath at 5pm" (two pets) | Ask which pet | Pass |
-| Command (C7, offline only) | "Feed Rex and brush Mia at 6pm today" | 2 tasks, overlap flagged for approval | Pass (mock) |
+| Command (C7) | "Feed Rex and brush Mia at 6pm today" | 2 tasks, overlap flagged for approval | Pass (mock eval + live demo) |
 | Question | "How often should I feed Mia?" | Answer citing `cat_care.md` | Pass |
 | Question | "Are lilies safe for cats?" | Answer citing `safety.md` | Pass |
 | Refusal | "Who won the world cup?" | "I don't know", no AI call | Pass |
@@ -39,7 +39,7 @@
 
 Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of the 18 cases, 6 never call the AI at all, because the safety rules, router, or retrieval evidence check decide them first.
 
-**Added after the live run:** case C7, *"Feed Rex and brush Mia at 6pm today"* (two overlapping tasks in one message → both proposed, overlap flagged). It passes offline (`python evaluate.py --mock`: 19/19) but has not been run against live Gemini yet.
+**Added after the live run:** case C7, *"Feed Rex and brush Mia at 6pm today"* (two overlapping tasks in one message → both proposed, overlap flagged). It passes offline (`python evaluate.py --mock`: 19/19), and the same request worked live in `python ai_demo.py` (Gemini split it into 2 tasks and the overlap was flagged), but the full live evaluation hasn't been re-run with it.
 
 **Caveat:** 18 cases from a single live run on one day is a small sample. It shows the system works as designed on representative inputs; it does not prove it is reliable on every phrasing.
 
@@ -54,7 +54,7 @@ Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of th
 - **The safety rules can also over-block.** Early versions blocked "Schedule Rex's blood test" and "give his pill after he has eaten". I fixed and tested those, but other harmless phrasings may still be blocked.
 - **English only.** The rules, routing, and retrieval only work for English input.
 - **Gemini doesn't always follow the "null if not stated" rule.** When it fills in a value itself, that default isn't listed in the "I filled in…" notes. The owner still sees the full task on the proposal card before confirming.
-- **Multi-task requests depend on Gemini splitting them correctly.** Up to 3 tasks per message are supported, but this was only tested with scripted replies so far; a live model might merge two tasks into one or split one task into two. The owner sees every task on the proposal card before confirming.
+- **Multi-task requests depend on Gemini splitting them correctly.** Up to 3 tasks per message are supported. Gemini split a two-task request correctly in the live demo, but that's one example; a live model might sometimes merge two tasks into one or split one task into two. The owner sees every task on the proposal card before confirming.
 - **Data isn't saved between sessions.** Like the original PawPal+, everything lives in Streamlit's session state.
 
 ---

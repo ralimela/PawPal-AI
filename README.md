@@ -124,75 +124,97 @@ The model is set in one place, `DEFAULT_MODEL` in `ai/llm_client.py` (`gemini-3.
 
 ## 💬 Sample interactions
 
-All output below is real, from `python ai_demo.py` with **Gemini (`gemini-3.5-flash-lite`)** on Nov 17, 2026. The demo household is Jordan with **Rex** (dog, 4) and **Mia** (cat, 2), and Mia has a vet checkup already booked for Monday at 2:00 PM. Traces are shortened.
+All output below is real, from `python ai_demo.py` with **Gemini (`gemini-3.5-flash-lite`)** on Nov 17, 2026 (run after the multi-task feature was added). The demo household is Jordan with **Rex** (dog, 4) and **Mia** (cat, 2), and Mia has a vet checkup already booked for Monday at 2:00 PM. Traces are shortened.
 
-**1. Smart Add with a conflict warning**
+**1. Smart Add: a single task, with the defaults it filled in**
+```
+[1] "Walk Rex every day at 7am"
+  -> PROPOSAL: Walk for Rex: Daily from Tue Nov 17 at 07:00 AM, 30 min, Medium priority (walk)
+     assumed (Walk): No priority was given, so I used Medium.
+     assumed (Walk): No length was given, so I used 30 minutes (typical for walk).
+     trace: SAFETY: passed | ROUTE: command | PARSE: attempt 1: {"tasks": [{"pet": "Rex", "title": "Walk",
+            "category": "walk", "frequency": "Daily", "due_date": "2026-11-17", "start_time": "07:00",
+            "priority": null, "duration_minutes": null}]} | VALIDATE: OK: 1 task(s); filled in defaults: 2
+            | CHECK: 0 conflict(s) | PROPOSE: ... -> waiting for the user to confirm
+     user clicked Confirm -> 1 task(s) added to the schedule
+```
+
+**2. Smart Add: overlap with an existing task needs approval**
 ```
 [2] "Give Mia her flea medicine every Monday at 2:30pm"
   -> PROPOSAL: Flea medicine for Mia: Weekly from Mon Nov 23 at 02:30 PM, 5 min, High priority (meds)
-     assumed: No priority was given, so I used High (medicine and appointments are important).
-     assumed: No length was given, so I used 5 minutes (typical for meds).
-     assumed: PawPal+ doesn't check medication names or doses. Follow your vet's instructions exactly.
-     WARNING (conflict): Mon Nov 23: overlaps Vet checkup (Mia) at 02:00 PM
-     trace: SAFETY: passed | ROUTE: command | PARSE: attempt 1: {"pet": "Mia", "title": "Flea medicine",
-            "category": "meds", "frequency": "Weekly", "due_date": "2026-11-23", "start_time": "14:30", ...}
-            | VALIDATE: OK; filled in defaults: 3 | CHECK: 1 conflict(s) | PROPOSE: ... -> waiting for the user to confirm
-     user clicked Confirm -> task added to the schedule
+     assumed (Flea medicine): No priority was given, so I used High (medicine and appointments are important).
+     assumed (Flea medicine): No length was given, so I used 5 minutes (typical for meds).
+     assumed (Flea medicine): PawPal+ doesn't check medication names or doses. Follow your vet's instructions exactly.
+     WARNING (overlap): Mon Nov 23: overlaps Vet checkup (Mia) at 02:00 PM
+     trace: ... | VALIDATE: OK: 1 task(s); filled in defaults: 3 | CHECK: 1 conflict(s)
+            | PROPOSE: ... -> waiting for the user to approve the overlap
+     user clicked "Yes, add anyway" (overlap approved) -> 1 task(s) added to the schedule
 ```
 
-**2. Smart Add asks instead of guessing**
-```
-[3] "add a bath at 5pm"
-  -> CLARIFY: Which pet is this for: Rex or Mia?
-     trace: ROUTE: command | PARSE: attempt 1: {"pet": null, "title": "Bath", ...} | VALIDATE: needs the user
-```
-
-**2b. Two tasks in one message that overlap: the owner decides** *(offline run with `python ai_demo.py --mock`; this feature was added after the live run)*
+**3. Smart Add: two tasks in one message that overlap each other**
 ```
 [3] "Feed Rex and brush Mia at 6pm today"
-  -> PROPOSAL: 1) Dinner for Rex: on Tue Nov 17 at 06:00 PM, 10 min, Medium priority (feeding)
-              2) Brushing for Mia: on Tue Nov 17 at 06:00 PM, 15 min, Medium priority (grooming)
-     WARNING (overlap): Tue Nov 17: Dinner (Rex, 06:00 PM) and Brushing (Mia, 06:00 PM) overlap, and both are in this request
-     trace: ... | VALIDATE: OK: 2 task(s); filled in defaults: 6 | CHECK: 1 conflict(s) | PROPOSE: ... -> waiting for the user to approve the overlap
+  -> PROPOSAL: 1) Feed for Rex: on Tue Nov 17 at 06:00 PM, 10 min, Medium priority (feeding)
+              2) Brush for Mia: on Tue Nov 17 at 06:00 PM, 15 min, Medium priority (grooming)
+     WARNING (overlap): Tue Nov 17: Feed (Rex, 06:00 PM) and Brush (Mia, 06:00 PM) overlap, and both are in this request
+     trace: ... | PARSE: attempt 1: { "tasks": [ { "pet": "Rex", "title": "Feed", ... "start_time": "18:00" ... },
+            { "pet": "Mia", "title": "Brush", ... } ] } | VALIDATE: OK: 2 task(s); filled in defaults: 4
+            | CHECK: 1 conflict(s) | PROPOSE: ... -> waiting for the user to approve the overlap
      user clicked "Yes, add anyway" (overlap approved) -> 2 task(s) added to the schedule
 ```
-In the app, the card shows *"⚠️ These times overlap: … You might be doing this on purpose. Do you want to add them anyway?"* with **✅ Yes, add anyway** and **✖ Cancel**. In code, `confirm_proposal()` refuses overlapping tasks unless `approve_overlaps=True`, so the approval can't be skipped.
+In the app, overlapping proposals show *"⚠️ These times overlap: … You might be doing this on purpose. Do you want to add them anyway?"* with **✅ Yes, add anyway** and **✖ Cancel**. In code, `confirm_proposal()` refuses overlapping tasks unless `approve_overlaps=True`, so the approval can't be skipped.
 
-**3. Ask PawPal: a personalized, cited answer**
+**4. Smart Add asks instead of guessing**
 ```
-[4] "How often should I feed Mia?"
+[4] "add a bath at 5pm"
+  -> CLARIFY: Which pet is this for: Rex or Mia?
+     trace: ROUTE: command | PARSE: attempt 1: {"tasks": [{"pet": null, "title": "Bath", ...}]} | VALIDATE: needs the user
+```
+
+**5. Ask PawPal: a personalized, cited answer**
+```
+[5] "How often should I feed Mia?"
   -> ANSWER: Hello! Since Mia is an adult cat, most adult cats do well with at least two meals a day at
-     regular times, or several small meals spread through the day [1]. You can use the feeding guide on
-     the cat food label as a starting point [1]. For the right amount for your cat, be sure to ask your vet [1].
+     regular times, or several small meals spread throughout the day [1]. You can use the feeding guide on
+     the cat food label as a starting point and ask your vet for the right amount for your cat [1].
      source [1] cat_care.md > Feeding Cats
      trace: ROUTE: question | PERSONALIZE: Mia: Cat, 2 years old (adult) -> searching for 'How often should I feed cat?'
             | RETRIEVE: cat_care.md > Feeding Cats, ... | GENERATE: Gemini answered | VERIFY: citations OK: [1]
 ```
 
-**4. Off-topic question: refused without calling the AI**
+**6. Off-topic question: refused without calling the AI**
 ```
-[6] "What's the best pizza place in town?"
+[7] "What's the best pizza place in town?"
   -> REFUSAL: I don't know based on my care guides. They cover everyday care for dogs and cats (feeding,
      exercise, grooming, vet visits, safety). For anything else, please ask your vet.
      trace: ROUTE: question | RETRIEVE: no guide section passed the evidence check -> refuse, no AI call
 ```
 
-**5. Safety guardrails: emergency and dose questions**
+**7. Safety guardrails: emergency and dose questions**
 ```
-[7] "Rex just ate a whole bar of chocolate!"
+[8] "Rex just ate a whole bar of chocolate!"
   -> EMERGENCY: This sounds like it could be an emergency. Please contact your vet or an emergency animal
      hospital right away. If your pet may have eaten something toxic, an animal poison control hotline can
      also help. PawPal+ can't give emergency or medical advice.
      trace: SAFETY: blocked (emergency) -> no AI call
 
-[8] "How many mg of Benadryl can I give Rex?"
+[9] "How many mg of Benadryl can I give Rex?"
   -> DOSAGE: PawPal+ can't advise on medication doses or which human medicines are safe. Some common human
      medicines are dangerous for pets. Please ask your vet; once they give you a dose, PawPal+ can schedule it for you.
      trace: SAFETY: blocked (dosage) -> no AI call
 ```
 
-**6. The confirmed tasks are part of the real schedule**
+**8. The confirmed tasks are part of the real schedule**
 ```
+Today's schedule (Tue Nov 17) after the assistant's changes
+--------------------------------------------------------------
+      Time      Task                 Pet       Length  Priority
+  [ ] 07:00 AM  Walk                 Rex       30 min  Medium
+  [ ] 06:00 PM  Feed                 Rex       10 min  Medium
+  [ ] 06:00 PM  Brush                Mia       15 min  Medium
+  WARNING: Feed (Rex) and Brush (Mia) are both at the same time, 06:00 PM
+
 Schedule for Monday Nov 23 after the assistant's changes
 --------------------------------------------------------------
       Time      Task                 Pet       Length  Priority
@@ -202,7 +224,7 @@ Schedule for Monday Nov 23 after the assistant's changes
   WARNING: Vet checkup (Mia, 02:00 PM, 60 min) overlaps Flea medicine (Mia, 02:30 PM)
 ```
 
-**In the web app**, the same flows appear in the "2. 🤖 AI Assistant" section: a proposal card with **✅ Confirm and add** / **✖ Cancel** buttons, yellow conflict warnings, a green answer box with its sources, a red emergency banner, and an "🔍 Agent trace" expander under every reply.
+**In the web app**, the same flows appear in the "2. 🤖 AI Assistant" section: a proposal card with **✅ Confirm and add** / **✖ Cancel** buttons (or **✅ Yes, add anyway** when times overlap), a green answer box with its sources, a red emergency banner, and an "🔍 Agent trace" expander under every reply.
 
 ---
 
@@ -259,7 +281,7 @@ tests\test_pawpal.py ........................                            [100%]
 ============================= 107 passed in 0.23s =============================
 ```
 
-**Evaluation: 18/18 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)). A 19th case (C7, two overlapping tasks in one message) was added afterwards with the multi-task feature; it passes offline (`--mock`, 19/19) and still needs a live run.
+**Evaluation: 18/18 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)). A 19th case (C7, two overlapping tasks in one message) was added afterwards with the multi-task feature; it passes offline (`--mock`, 19/19), and the same request worked live in `ai_demo.py` (sample 3 above), but the full 19-case live evaluation hasn't been re-run yet.
 
 | Group | Cases | What is checked | Live result |
 |---|---|---|---|
