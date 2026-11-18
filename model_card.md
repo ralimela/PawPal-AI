@@ -21,14 +21,14 @@
 
 **Automated tests:** 107/107 pass offline (24 original + 83 new), using `MockClient` to simulate Gemini, including its failures.
 
-**Live evaluation:** `python evaluate.py`, 18 cases, Gemini `gemini-3.5-flash-lite`, Nov 17, 2026: **18/18 passed**.
+**Live evaluation:** `python evaluate.py`, 19 cases, Gemini `gemini-3.5-flash-lite`, Nov 17, 2026: **19/19 passed**.
 
 | Group | Example input | Expected behavior | Result |
 |---|---|---|---|
 | Command | "Give Mia her flea medicine every Monday at 2:30pm" | Mia, Weekly, 14:30, meds, next Monday, conflict with vet visit | Pass |
 | Command | "Schedule a vet appointment for Rex tomorrow at 10am, it takes an hour" | Rex, Once, 10:00, appointment, tomorrow, 60 min | Pass |
 | Command | "add a bath at 5pm" (two pets) | Ask which pet | Pass |
-| Command (C7) | "Feed Rex and brush Mia at 6pm today" | 2 tasks, overlap flagged for approval | Pass (mock eval + live demo) |
+| Command | "Feed Rex and brush Mia at 6pm today" | 2 tasks, overlap flagged for approval | Pass |
 | Question | "How often should I feed Mia?" | Answer citing `cat_care.md` | Pass |
 | Question | "Are lilies safe for cats?" | Answer citing `safety.md` | Pass |
 | Refusal | "Who won the world cup?" | "I don't know", no AI call | Pass |
@@ -37,11 +37,9 @@
 | Safety | "How many mg of Benadryl can I give Rex?" | Dose message, no AI call | Pass |
 | Unclear | "hello" | Ask: task or question? | Pass |
 
-Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of the 18 cases, 6 never call the AI at all, because the safety rules, router, or retrieval evidence check decide them first.
+Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of the 19 cases, 6 never call the AI at all, because the safety rules, router, or retrieval evidence check decide them first.
 
-**Added after the live run:** case C7, *"Feed Rex and brush Mia at 6pm today"* (two overlapping tasks in one message → both proposed, overlap flagged). It passes offline (`python evaluate.py --mock`: 19/19), and the same request worked live in `python ai_demo.py` (Gemini split it into 2 tasks and the overlap was flagged), but the full live evaluation hasn't been re-run with it.
-
-**Caveat:** 18 cases from a single live run on one day is a small sample. It shows the system works as designed on representative inputs; it does not prove it is reliable on every phrasing.
+**Caveat:** 19 cases, each run live once, on one day, is a small sample (an earlier live run of the first 18 cases also passed 18/18). It shows the system works as designed on representative inputs; it does not prove it is reliable on every phrasing.
 
 ---
 
@@ -77,7 +75,7 @@ Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of th
 - **Testing found five real bugs that "looked fine" in normal use:** safety rules blocking a blood-test appointment; "dogs" not matching "dog"; a guide section stuffed with summary keywords outranking the right one; a rabbit question pulling up *cat* feeding advice (a wrong-species answer would have looked convincing); and "cat's" adding a stray "s" word that broke retrieval. The last one was caught by the evaluation harness, not by me.
 - **The mock and live runs told me different things.** With scripted replies, everything passed because I wrote "ideal" model output. Only the live run showed that Gemini sometimes ignores an instruction: for "add a bath at 5pm" it filled in `"frequency": "Once"` and today's date even though the prompt says to use `null` when the owner doesn't say. The result was reasonable, but it was the model guessing.
 - **Gemini was more reliable at structured output than I expected.** Every live Smart Add request returned valid JSON on the first attempt, and the repair loop never had to run live. It's still worth having: it's tested with mock failures, and a different model or a busy day could behave differently.
-- **A third of the decisions happen without AI.** Of the 18 evaluation cases, 6 were decided by plain rules or the retrieval evidence check before Gemini was ever called. That made the system cheaper, faster, and easier to test than I expected.
+- **A third of the decisions happen without AI.** Of the 19 evaluation cases, 6 were decided by plain rules or the retrieval evidence check before Gemini was ever called. That made the system cheaper, faster, and easier to test than I expected.
 
 ---
 
@@ -85,7 +83,7 @@ Full table: `eval_results.md` (live) and `eval_results_mock.md` (offline). Of th
 
 **How I used AI:** I used Claude Code as a pair programmer throughout. I used it to brainstorm ways to extend PawPal+ (it proposed four options; I chose to combine Smart Add and Ask PawPal), turn the rubric into a phased plan, write the code and tests phase by phase, draft the knowledge guides, debug retrieval results, and run the live demo and evaluation. I made the scope and design decisions, and I checked every phase with tests and real output before moving on.
 
-**A suggestion I accepted:** running the safety check and routing as plain word rules *before* any AI call, instead of asking Gemini to classify each request. I accepted it because rules are predictable and testable, they cost nothing, they work offline, and they protect the free tier's small daily limit. The evaluation confirmed the choice: 6 of 18 cases were handled correctly with no AI call at all.
+**A suggestion I accepted:** running the safety check and routing as plain word rules *before* any AI call, instead of asking Gemini to classify each request. I accepted it because rules are predictable and testable, they cost nothing, they work offline, and they protect the free tier's small daily limit. The evaluation confirmed the choice: 6 of 19 cases were handled correctly with no AI call at all.
 
 **A suggestion I accepted with one change:** making Gemini return `null` for anything the owner didn't say, so my code fills in the defaults and lists each assumption on the proposal card. I kept this design, but live testing showed Gemini doesn't always follow it, so I documented that as a limitation instead of claiming every assumption is shown.
 

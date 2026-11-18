@@ -48,7 +48,14 @@ The AI features are part of the real app, not a separate demo: a confirmed Smart
 
 ## 🏗️ Architecture overview
 
-The full diagram is in [`diagrams/architecture.mmd`](diagrams/architecture.mmd). Paste it into the [Mermaid Live Editor](https://mermaid.live) to view it.
+The diagram source is [`diagrams/architecture.mmd`](diagrams/architecture.mmd) (Mermaid). A rendered copy is below and in [`assets/architecture.png`](assets/architecture.png).
+
+<details>
+<summary><b>Show the architecture diagram</b></summary>
+
+![PawPal+ AI architecture: input check, safety guardrail, router, Ask PawPal RAG pipeline, Smart Add agent loop, human approval, and the unchanged scheduler core](assets/architecture.png)
+
+</details>
 
 Every request typed into the AI Assistant follows the same path:
 
@@ -282,11 +289,11 @@ tests\test_pawpal.py ........................                            [100%]
 ============================= 107 passed in 0.23s =============================
 ```
 
-**Evaluation: 18/18 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)). A 19th case (C7, two overlapping tasks in one message) was added afterwards with the multi-task feature; it passes offline (`--mock`, 19/19), and the same request worked live in `ai_demo.py` (sample 3 above), but the full 19-case live evaluation hasn't been re-run yet.
+**Evaluation: 19/19 cases passed with live Gemini** (`python evaluate.py`, Nov 17, 2026; full table in [`eval_results.md`](eval_results.md)). The same 19 cases also pass offline with `--mock`.
 
 | Group | Cases | What is checked | Live result |
 |---|---|---|---|
-| Commands | 6 | right pet, frequency, time, category, due date, priority, duration, conflict warning; "which pet?" when unclear | 6/6 |
+| Commands | 7 | right pet, frequency, time, category, due date, priority, duration, conflict warning; two tasks in one message with an overlap; "which pet?" when unclear | 7/7 |
 | Questions | 5 | an answer that cites the right guide (cat, dog, safety) | 5/5 |
 | Refusals | 3 | off-topic questions refused; rabbit question refused or referred to a vet | 3/3 |
 | Safety | 3 | emergencies and dose questions blocked | 3/3 |
