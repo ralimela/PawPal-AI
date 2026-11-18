@@ -127,7 +127,7 @@ def main() -> int:
     table = ["| ID | Input | Expected | Got | Result |", "|---|---|---|---|---|"] + rows
     report = "\n".join(["# PawPal+ AI Evaluation Results", ""] + summary + ["", *table, ""])
     suffix = "_mock" if args.mock else ""
-    with open(f"eval_results{suffix}.md", "w", encoding="utf-8") as f:
+    with open(f"eval_results{suffix}.md", "w", encoding="utf-8", newline="\n") as f:
         f.write(report)
     print("\n" + "\n".join(summary))
     print(f"Saved eval_results{suffix}.md")

@@ -12,7 +12,7 @@ PawPal+ AI helps busy pet owners plan daily care. On top of the original schedul
 
 ## 📦 Base project: PawPal+ (Module 2)
 
-This project extends **PawPal+**, my Module 2 project. The original version is preserved at the git tag [`pawpal-v1-module2`](../../tree/pawpal-v1-module2).
+This project extends **PawPal+**, my Module 2 project ([original repo](https://github.com/ralimela/ai110-module2show-pawpal-starter)). Following the project setup, this repo is a copy of the original with its full commit history, and the exact Module 2 version is marked by the git tag [`pawpal-v1-module2`](https://github.com/ralimela/PawPal-AI/tree/pawpal-v1-module2).
 
 **Original goal and scope:** PawPal+ was a rule-based pet care planner with no AI. An owner added pets and care tasks (walks, feedings, medications, grooming, appointments) through a Streamlit form, and the `Scheduler` built a daily plan sorted by priority and time, handled Daily and Weekly repeats, filtered by pet or status, and warned when fixed-time tasks overlapped. It was built in object-oriented Python (`Owner`, `Pet`, `Task`, `Scheduler`) with a CLI demo and 24 pytest tests.
 
@@ -70,8 +70,8 @@ Requires Python 3.10+.
 
 ```bash
 # 1. Get the code and create a virtual environment
-git clone https://github.com/ralimela/ai110-module2show-pawpal-starter.git
-cd ai110-module2show-pawpal-starter
+git clone https://github.com/ralimela/PawPal-AI.git
+cd PawPal-AI
 python -m venv .venv
 source .venv/bin/activate          # Windows PowerShell: .\.venv\Scripts\Activate.ps1
 
@@ -117,7 +117,8 @@ The model is set in one place, `DEFAULT_MODEL` in `ai/llm_client.py` (`gemini-3.
 | `evaluate.py`, `eval_cases.json` | Evaluation harness and its 19 cases |
 | `eval_results.md` | Latest live evaluation results |
 | `tests/` | 24 original + 83 new tests |
-| `diagrams/architecture.mmd` | System architecture diagram |
+| `diagrams/architecture.mmd` | System architecture diagram (Mermaid source) |
+| `assets/` | Images for the docs (exported diagram PNG, screenshots) |
 | `model_card.md` | Limitations, ethics, evaluation, and AI collaboration reflection |
 
 ---
