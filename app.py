@@ -1,10 +1,69 @@
 import streamlit as st
 from datetime import date, time
+from pathlib import Path
 
+from ai import reply as R
+from ai.llm_client import get_client
+from ai.orchestrator import handle
+from ai.reply import Reply
+from ai.retriever import KnowledgeBase
+from ai.task_agent import CATEGORIES, confirm_proposal
+from ai.trace import setup_logging
 from pawpal_system import FREQUENCIES, PRIORITIES, Owner, Pet, Scheduler, Task
 
-CATEGORIES = ["walk", "feeding", "meds", "grooming", "appointment", "other"]
 PRIORITY_ICONS = {"High": "🔴 High", "Medium": "🟡 Medium", "Low": "🟢 Low"}
+HERE = Path(__file__).parent
+
+setup_logging(str(HERE / "logs" / "pawpal_ai.log"))
+
+
+@st.cache_resource
+def get_knowledge_base() -> KnowledgeBase:
+    """Load the care guides once per server, not on every rerun."""
+    return KnowledgeBase(str(HERE / "knowledge"))
+
+
+@st.cache_resource
+def get_ai_client():
+    """Gemini client if GEMINI_API_KEY is set, else None (offline mode)."""
+    return get_client()
+
+
+def show_reply(reply: Reply, owner: Owner) -> None:
+    """Render one assistant reply, including Confirm/Cancel for task proposals."""
+    if reply.kind == R.EMERGENCY:
+        st.error(f"🚨 {reply.message}")
+    elif reply.kind == R.DOSAGE:
+        st.warning(f"💊 {reply.message}")
+    elif reply.kind == R.ANSWER:
+        st.success(reply.message)
+        st.caption("Sources: " + " · ".join(reply.sources))
+    elif reply.kind in (R.REFUSAL, R.CLARIFY):
+        st.info(reply.message)
+    elif reply.kind == R.ERROR:
+        st.warning(reply.message)
+    elif reply.kind == R.PROPOSAL:
+        proposal = reply.proposal
+        st.info(f"**Proposed task:** {proposal.summary()}\n\n"
+                "Nothing is saved until you confirm.")
+        if proposal.assumptions:
+            st.caption("I filled in: " + " ".join(proposal.assumptions))
+        for warning in proposal.warnings:
+            st.warning(f"⚠️ Time conflict. {warning}")
+        col1, col2 = st.columns(2)
+        if col1.button("✅ Confirm and add", type="primary"):
+            try:
+                confirm_proposal(owner, proposal)
+                st.session_state.flash = f"Added '{proposal.task.title}' for {proposal.pet_name}."
+            except ValueError as err:
+                st.session_state.flash = f"Couldn't add the task: {err}"
+            del st.session_state.ai_reply
+            st.rerun()
+        if col2.button("✖ Cancel"):
+            del st.session_state.ai_reply
+            st.rerun()
+    with st.expander("🔍 Agent trace (how this answer was made)"):
+        st.code("\n".join(reply.trace.lines()), language=None)
 
 
 def time_label(task: Task) -> str:
@@ -72,8 +131,33 @@ else:
 
 st.divider()
 
+# --- AI Assistant ----------------------------------------------------------
+st.subheader("2. 🤖 AI Assistant")
+
+ai_client = get_ai_client()
+if ai_client:
+    st.caption(f"Connected to {ai_client.name}. Describe a task to add, or ask a pet care "
+               "question. Answers come only from PawPal+'s care guides.")
+else:
+    st.caption("Offline mode (no GEMINI_API_KEY): questions are answered with the matching "
+               "care-guide section, and tasks use the manual form below.")
+
+with st.form("ai_form", clear_on_submit=True):
+    request = st.text_input("Your request", placeholder="Walk Rex every day at 7am  ·  "
+                                                        "How often should I feed Mia?")
+    if st.form_submit_button("Send"):
+        st.session_state.ai_reply = handle(request, owner, get_knowledge_base(), ai_client)
+
+if "ai_reply" in st.session_state:
+    show_reply(st.session_state.ai_reply, owner)
+
+st.caption("PawPal+ gives general care information, not veterinary advice. "
+           "In an emergency, contact your vet right away.")
+
+st.divider()
+
 # --- Add a task ------------------------------------------------------------
-st.subheader("2. Tasks")
+st.subheader("3. Tasks (manual form)")
 
 if not owner.pets:
     st.info("Add a pet before scheduling tasks.")
@@ -106,7 +190,7 @@ else:
 st.divider()
 
 # --- Schedule --------------------------------------------------------------
-st.subheader("3. Schedule")
+st.subheader("4. Schedule")
 
 day = st.date_input("Show schedule for", value=date.today(), key="schedule_day")
 day_tasks = scheduler.get_daily_tasks(day)
