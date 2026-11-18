@@ -283,7 +283,7 @@ def propose_task(request: str, owner: Owner, client, today: date | None = None,
             trace.add(step, f"AI call failed: {err}")
             return Reply(R.ERROR, "I couldn't reach the AI right now. Please try again, or "
                                   "use the manual form.", trace=trace)
-        trace.add(step, f"attempt {attempt}: {raw[:200]}")
+        trace.add(step, f"attempt {attempt}: {' '.join(raw.split())[:200]}")  # one line
 
         try:
             task, pet, assumptions = validate(parse_json(raw), owner, today)

@@ -1,0 +1,63 @@
+flowchart TD
+    %% PawPal+ AI system architecture (matches the ai/ package, app.py, ai_demo.py, evaluate.py)
+
+    U(["👤 Pet owner<br/>types a request in app.py or ai_demo.py"])
+
+    subgraph ORCH["ai/orchestrator.py: handle()"]
+        IN["1. Input check<br/>empty or over 500 chars → ask again"]
+        SAFE{"2. Safety guardrail<br/>ai/safety.py (rules, no AI)"}
+        ROUTE{"3. Route<br/>word rules: classify()"}
+    end
+
+    U --> IN --> SAFE
+    SAFE -- "emergency or dose question" --> VET["🚨 'Contact your vet now'<br/>no AI call"]
+    SAFE -- "passed" --> ROUTE
+    ROUTE -- "unclear" --> ASK["❓ 'Add a task or ask a question?'"]
+
+    subgraph RAG["Ask PawPal: ai/care_assistant.py"]
+        PERS["Personalize<br/>pet name → species, age → life stage"]
+        RET["Retrieve: ai/retriever.py<br/>heading chunks + evidence check"]
+        GEN["Generate with Gemini<br/>answer ONLY from sections, cite [n]"]
+        VER{"Verify answer<br/>refusal? dose amount? real citations?"}
+    end
+
+    subgraph AGENT["Smart Add: ai/task_agent.py"]
+        PARSE["Parse with Gemini<br/>request → JSON, null if not stated"]
+        VAL{"Validate<br/>pet exists? Task() rules, dates, times"}
+        REP["Repair once<br/>send the exact problems back"]
+        CHK["Check conflicts<br/>Scheduler.detect_conflicts(), 7 days"]
+        PROP["Proposal<br/>task + assumptions + warnings"]
+    end
+
+    ROUTE -- "question" --> PERS --> RET
+    RET -- "no section passes" --> REFUSE["🤷 'I don't know based on my care guides'<br/>no AI call"]
+    RET -- "top 3 sections" --> GEN --> VER
+    VER -- "refused / unsupported" --> REFUSE
+    VER -- "dose found" --> VET
+    VER -- "OK" --> ANS["💬 Answer + sources"]
+    KB[("knowledge/*.md<br/>6 pet care guides")] -.-> RET
+
+    ROUTE -- "command" --> PARSE --> VAL
+    VAL -- "fixable problems" --> REP --> VAL
+    VAL -- "still invalid" --> FORM["↩️ 'Please use the manual form'"]
+    VAL -- "which pet?" --> ASK
+    VAL -- "valid" --> CHK --> PROP
+
+    PROP --> HUMAN{"👤 Human in the loop<br/>Confirm or Cancel"}
+    HUMAN -- "Confirm" --> CORE
+    HUMAN -- "Cancel" --> DROP["nothing saved"]
+
+    subgraph CORE["pawpal_system.py (unchanged core)"]
+        PET["Pet.add_task()"] --> SCH["Scheduler<br/>sort · filter · recurrence · conflicts"]
+    end
+    SCH --> UI["📅 Schedule table in the app"]
+
+    GEMINI[["Gemini API<br/>ai/llm_client.py<br/>(MockClient in tests)"]] -.-> GEN
+    GEMINI -.-> PARSE
+
+    subgraph TESTING["Testing and evaluation"]
+        PYTEST["pytest: 99 tests<br/>MockClient, offline"]
+        EVAL["evaluate.py<br/>18 cases → eval_results.md"]
+        LOG["Agent trace + logs/pawpal_ai.log"]
+    end
+    TESTING -.checks.-> ORCH
