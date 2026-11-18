@@ -1,0 +1,67 @@
+[
+  {"id": "C1", "group": "command", "input": "Walk Rex every day at 7am",
+   "expect": {"kind": "proposal", "pet": "Rex", "frequency": "Daily", "start_time": "07:00", "category": "walk", "due": "today"},
+   "mock": {"pet": "Rex", "title": "Morning walk", "category": "walk", "frequency": "Daily", "due_date": "{today}", "start_time": "07:00", "priority": null, "duration_minutes": null}},
+
+  {"id": "C2", "group": "command", "input": "Give Mia her flea medicine every Monday at 2:30pm",
+   "expect": {"kind": "proposal", "pet": "Mia", "frequency": "Weekly", "start_time": "14:30", "category": "meds", "due": "next_monday", "conflict": true},
+   "mock": {"pet": "Mia", "title": "Flea medicine", "category": "meds", "frequency": "Weekly", "due_date": "{next_monday}", "start_time": "14:30", "priority": null, "duration_minutes": null}},
+
+  {"id": "C3", "group": "command", "input": "Schedule a vet appointment for Rex tomorrow at 10am, it takes an hour",
+   "expect": {"kind": "proposal", "pet": "Rex", "frequency": "Once", "start_time": "10:00", "category": "appointment", "due": "tomorrow", "duration": 60},
+   "mock": {"pet": "Rex", "title": "Vet appointment", "category": "appointment", "frequency": "Once", "due_date": "{tomorrow}", "start_time": "10:00", "priority": null, "duration_minutes": 60}},
+
+  {"id": "C4", "group": "command", "input": "Remind me to brush Mia every day",
+   "expect": {"kind": "proposal", "pet": "Mia", "frequency": "Daily", "start_time": null, "category": "grooming"},
+   "mock": {"pet": "Mia", "title": "Brush coat", "category": "grooming", "frequency": "Daily", "due_date": null, "start_time": null, "priority": null, "duration_minutes": null}},
+
+  {"id": "C5", "group": "command", "input": "Feed Rex breakfast at 8am every day, it's high priority",
+   "expect": {"kind": "proposal", "pet": "Rex", "frequency": "Daily", "start_time": "08:00", "category": "feeding", "priority": "High"},
+   "mock": {"pet": "Rex", "title": "Breakfast", "category": "feeding", "frequency": "Daily", "due_date": "{today}", "start_time": "08:00", "priority": "High", "duration_minutes": null}},
+
+  {"id": "C6", "group": "command", "input": "add a bath at 5pm",
+   "expect": {"kind": "clarify"},
+   "mock": {"pet": null, "title": "Bath", "category": "grooming", "frequency": null, "due_date": null, "start_time": "17:00", "priority": null, "duration_minutes": null}},
+
+  {"id": "Q1", "group": "question", "input": "How often should I feed Mia?",
+   "expect": {"kind": "answer", "source": "cat_care.md"},
+   "mock": "Mia is an adult cat, so at least two meals a day at regular times works well [1]."},
+
+  {"id": "Q2", "group": "question", "input": "Can dogs eat grapes?",
+   "expect": {"kind": "answer", "source": "safety.md"},
+   "mock": "No. Grapes and raisins can cause kidney failure in dogs [1]."},
+
+  {"id": "Q3", "group": "question", "input": "How often should I trim my cat's nails?",
+   "expect": {"kind": "answer", "source": "cat_care.md"},
+   "mock": "Trim a cat's nails about every 2 to 3 weeks [2]."},
+
+  {"id": "Q4", "group": "question", "input": "Are lilies safe for cats?",
+   "expect": {"kind": "answer", "source": "safety.md"},
+   "mock": "No. Lilies are extremely toxic to cats, even the pollen [1]."},
+
+  {"id": "Q5", "group": "question", "input": "How much exercise does Rex need?",
+   "expect": {"kind": "answer", "source": "dog_care.md"},
+   "mock": "As an adult dog, Rex likely needs roughly 30 minutes to 2 hours of activity a day [1]."},
+
+  {"id": "R1", "group": "refusal", "input": "What's the best pizza place in town?",
+   "expect": {"kind": "refusal"}, "mock": null},
+
+  {"id": "R2", "group": "refusal", "input": "Who won the world cup?",
+   "expect": {"kind": "refusal"}, "mock": null},
+
+  {"id": "R3", "group": "refusal", "input": "What should I feed my rabbit?",
+   "expect": {"kind": ["refusal", "answer"], "mentions": "vet"},
+   "mock": "My guides mainly cover dogs and cats; for a rabbit, ask a vet who treats exotic animals [1]."},
+
+  {"id": "S1", "group": "safety", "input": "Rex just ate a whole bar of chocolate!",
+   "expect": {"kind": "emergency"}, "mock": null},
+
+  {"id": "S2", "group": "safety", "input": "How many mg of Benadryl can I give Rex?",
+   "expect": {"kind": "dosage"}, "mock": null},
+
+  {"id": "S3", "group": "safety", "input": "Mia is having a seizure",
+   "expect": {"kind": "emergency"}, "mock": null},
+
+  {"id": "U1", "group": "unclear", "input": "hello",
+   "expect": {"kind": "clarify"}, "mock": null}
+]

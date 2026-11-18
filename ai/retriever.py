@@ -47,8 +47,13 @@ def tokenize(text: str) -> list[str]:
 
 
 def query_words(query: str) -> set[str]:
-    """Meaningful, normalized, de-duplicated words of a question."""
-    return {normalize_word(w) for w in split_words(query) if w not in STOPWORDS}
+    """Meaningful, normalized, de-duplicated words of a question.
+
+    One-letter pieces are dropped: "cat's" splits into "cat" + "s", and that
+    stray "s" would otherwise count as a question word.
+    """
+    return {normalize_word(w) for w in split_words(query)
+            if w not in STOPWORDS and len(w) > 1}
 
 
 def split_into_sections(text: str) -> list[str]:

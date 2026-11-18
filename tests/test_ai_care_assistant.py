@@ -31,6 +31,12 @@ def test_word_normalization_matches_word_forms():
     assert normalize_word("feeding") == normalize_word("feed")
 
 
+def test_possessive_s_is_not_a_question_word():
+    # Found by evaluate.py: "cat's" used to add a stray "s" to the question words
+    from ai.retriever import query_words
+    assert query_words("How often should I trim my cat's nails?") == {"often", "trim", "cat", "nail"}
+
+
 def test_guardrail_needs_two_words_for_multi_word_questions():
     assert min_words_needed(1) == 1
     assert min_words_needed(2) == 2
